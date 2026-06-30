@@ -237,7 +237,7 @@ const produtosValidos = produtos.filter(p => {
   const comissao = parseFloat(p.commissionRate || 0);
 
   return (
-   preco >= PRECO_MINIMO &&
+   preco >= 20.00 &&
   vendas >= 1000 &&
   nota >= 4.6 &&
   desconto >= 20 &&
@@ -280,13 +280,29 @@ const nomeResumido = produtoValido.productName.length > 80
   ? produtoValido.productName.slice(0, 80) + '...'
   : produtoValido.productName;
 
-const textoMensagem = `🔥 *ACHADINHO COM DESCONTO!* 🔥\n\n` +
-                      `🛍️ *${nomeResumido}*\n\n` +
-                      `💰 Por: *R$ ${produtoValido.price}*\n` +
-                      `📉 Desconto: *${produtoValido.priceDiscountRate}% OFF*\n` +
-                      `⭐ Avaliação: *${produtoValido.ratingStar}*\n` +
-                      `🔥 Vendidos: *${produtoValido.sales}*\n\n` +
-                      `👉 Compre aqui:\n${linkAfiliadoPronto}`;
+  const precoAtual = parseFloat(produtoValido.price);
+const desconto = parseFloat(produtoValido.priceDiscountRate || 0);
+
+const precoOriginal = desconto > 0
+  ? precoAtual / (1 - desconto / 100)
+  : precoAtual;
+
+const precoOriginalFormatado = precoOriginal.toFixed(2).replace('.', ',');
+const precoAtualFormatado = precoAtual.toFixed(2).replace('.', ',');
+
+const textoMensagem =
+`🔥 *SUPER OFERTA SHOPEE* 🔥
+
+🛍️ *${nomeResumido}*
+
+💸 De: ~R$ ${precoOriginalFormatado}~
+💰 Por: *R$ ${precoAtualFormatado}*
+
+📉 Desconto: *${produtoValido.priceDiscountRate}% OFF*
+
+
+👉 Compre aqui:
+${linkAfiliadoPronto}`;
 
 await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
 
