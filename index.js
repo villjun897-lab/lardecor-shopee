@@ -1,6 +1,18 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
-import fs from 'fs';
+import pg from 'pg';
+
+const { Pool } = pg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+//if (!process.env.DATABASE_URL) {
+  //console.error("❌ DATABASE_URL não encontrada");
+  //process.exit(1);
+//}
 
 // ==========================================
 //   1. CONFIGURAÇÕES DO USUÁRIO & CREDENCIAIS
@@ -38,16 +50,33 @@ let whatsappGrupoIdCache = null;
 //   2. GERADOR DE AUTENTICAÇÃO SHOPEE
 // ==========================================
 
-function carregarEnviados() {
-  try {
-    return JSON.parse(fs.readFileSync('enviados.json', 'utf8'));
-  } catch {
-    return [];
-  }
+async function prepararBanco() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS produtos_enviados (
+      id SERIAL PRIMARY KEY,
+      product_link TEXT UNIQUE NOT NULL,
+      product_name TEXT,
+      enviado_em TIMESTAMP DEFAULT NOW()
+    );
+  `);
 }
 
-function salvarEnviados(lista) {
-  fs.writeFileSync('enviados.json', JSON.stringify(lista, null, 2));
+async function produtoJaFoiEnviado(productLink) {
+  const resultado = await pool.query(
+    'SELECT 1 FROM produtos_enviados WHERE product_link = $1 LIMIT 1',
+    [productLink]
+  );
+
+  return resultado.rowCount > 0;
+}
+
+async function registrarProdutoEnviado(produto) {
+  await pool.query(
+    `INSERT INTO produtos_enviados (product_link, product_name)
+     VALUES ($1, $2)
+     ON CONFLICT (product_link) DO NOTHING`,
+    [produto.productLink, produto.productName]
+  );
 }
 
 async function buscarCupomOuCampanhaShopee() {
@@ -227,9 +256,10 @@ async function executarRoboDeOfertas() {
     return;
   }
 
-  const produtosJaEnviados = carregarEnviados();
 
-const produtosValidos = produtos.filter(p => {
+const produtosValidos = [];
+
+for (const p of produtos) {
   const preco = parseFloat(p.price);
   const vendas = Number(p.sales || 0);
   const nota = parseFloat(p.ratingStar || 0);
@@ -241,14 +271,19 @@ console.log(
     `💰 Comissão: R$ ${comissaoReais.toFixed(2)} | ${p.productName}`
 );
   
-    return (
-    comissaoReais >= 5 &&
-    vendas >= 500 &&
-    nota >= 4.3 &&
-    desconto >= 20 &&
-    !produtosJaEnviados.includes(p.productLink)
-  );
-});
+    const jaEnviado = await produtoJaFoiEnviado(p.productLink);
+
+if (
+  preco >= PRECO_MINIMO &&
+  comissaoReais >= 8 &&
+  vendas >= 1000 &&
+  nota >= 4.3 &&
+  desconto >= 15 &&
+  !jaEnviado
+) {
+  produtosValidos.push(p);
+}
+}
 
 if (produtosValidos.length === 0) {
   console.log('Nenhum produto válido encontrado.');
@@ -259,14 +294,14 @@ const produtoValido = produtosValidos.sort((a, b) => {
 
   const scoreA =
   (a.price || 0) *
+  (a.price || 0) *
   (a.sales || 0) *
-  (a.priceDiscountRate || 0) *
   (a.commissionRate || 0);
 
 const scoreB =
   (b.price || 0) *
+  (b.price || 0) *
   (b.sales || 0) *
-  (b.priceDiscountRate || 0) *
   (b.commissionRate || 0);
 
   return scoreB - scoreA;
@@ -312,10 +347,9 @@ ${linkAfiliadoPronto}`;
 
 await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
 
-produtosJaEnviados.push(produtoValido.productLink);
-salvarEnviados(produtosJaEnviados);
+await registrarProdutoEnviado(produtoValido);
 
-console.log('✅ Produto registrado no enviados.json');
+console.log('✅ Produto registrado no PostgreSQL');
 }
 
 // ==========================================
@@ -323,27 +357,27 @@ console.log('✅ Produto registrado no enviados.json');
 // ==========================================
 const esperar = (tempoEmMinutos) => new Promise(resolve => setTimeout(resolve, tempoEmMinutos * 60 * 1000));
 
-while (true) {
-  const horaBrasil = Number(
-    new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      hour: 'numeric',
-      hour12: false
-    }).format(new Date())
-  );
+async function iniciarFluxoAutomatico() {
+  while (true) {
+    const horaBrasil = Number(
+      new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour: 'numeric',
+        hour12: false
+      }).format(new Date())
+    );
 
-  console.log(`\n🕒 Executando rotina (${horaBrasil}h)...`);
-  await executarRoboDeOfertas();
+    console.log(`\n🕒 Executando rotina (${horaBrasil}h)...`);
+    await executarRoboDeOfertas();
 
-  const intervalosPermitidos = [0.5, 1, 1.5];
-  const minutosDeEspera =
-    intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
+    const intervalosPermitidos = [0.5, 1, 1.5];
+    const minutosDeEspera =
+      intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
 
-  console.log(
-    `🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`
-  );
-
-  await esperar(minutosDeEspera);
+    console.log(`🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`);
+    await esperar(minutosDeEspera);
+  }
 }
 
+await prepararBanco();
 iniciarFluxoAutomatico();
