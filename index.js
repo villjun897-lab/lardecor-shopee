@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import crypto from 'crypto';
+import fs from 'fs';
 
 // ==========================================
 //   1. CONFIGURAÇÕES DO USUÁRIO & CREDENCIAIS
@@ -28,6 +29,18 @@ let whatsappGrupoIdCache = null;
 // ==========================================
 //   2. GERADOR DE AUTENTICAÇÃO SHOPEE
 // ==========================================
+
+function carregarEnviados() {
+  try {
+    return JSON.parse(fs.readFileSync('enviados.json', 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function salvarEnviados(lista) {
+  fs.writeFileSync('enviados.json', JSON.stringify(lista, null, 2));
+}
 
 async function buscarCupomOuCampanhaShopee() {
   const queryGraphQL = {
@@ -214,8 +227,12 @@ if (campanhas.length > 0) {
     return;
   }
 
-  const produtosValidos = produtos.filter(
-  p => parseFloat(p.price) >= PRECO_MINIMO
+  const produtosJaEnviados = carregarEnviados();
+
+const produtosValidos = produtos.filter(
+  p =>
+    parseFloat(p.price) >= PRECO_MINIMO &&
+    !produtosJaEnviados.includes(p.productLink)
 );
 
 if (produtosValidos.length === 0) {
@@ -247,6 +264,11 @@ const textoMensagem = `🔥 *ACHADINHO NA SHOPEE!* 🔥\n\n` +
                       `⚠️ *Estoque limitado, aproveite!*`;
 
 await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
+
+produtosJaEnviados.push(produtoValido.productLink);
+salvarEnviados(produtosJaEnviados);
+
+console.log('✅ Produto registrado no enviados.json');
 }
 
 // ==========================================
