@@ -137,10 +137,12 @@ function obterHeadersAutenticados(bodyStr) {
 async function garimparMelhoresOfertas() {
   const nichoDoMomento = NICHOS[Math.floor(Math.random() * NICHOS.length)];
   
+const paginaAleatoria = Math.floor(Math.random() * 5) + 1;
+
   const queryGraphQL = {
     query: `
-      query getProductOfferList($keyword: String) {
-        productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: 1, limit: 30) {
+      query getProductOfferList($keyword: String, $page: Int) {
+        productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: $page, limit: 30) {
   nodes {
     productName
     productLink
@@ -154,7 +156,10 @@ async function garimparMelhoresOfertas() {
 }
       }
     `,
-    variables: { keyword: nichoDoMomento }
+    variables: {
+  keyword: nichoDoMomento,
+  page: paginaAleatoria
+}
   };
 
   const bodyStr = JSON.stringify(queryGraphQL);
