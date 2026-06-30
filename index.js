@@ -62,7 +62,7 @@ const NICHOS = [
 "roupa infantil",
 "vestido infantil",
 "moletom infantil",
-"jaqueta infantil"
+"jaqueta infantil",
 
   "calçados femininos",
   "calçados masculinos",
