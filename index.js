@@ -449,7 +449,7 @@ async function iniciarFluxoAutomatico() {
     console.log(`\n🕒 Executando rotina (${horaBrasil}h)...`);
     await executarRoboDeOfertas();
 
-    const intervalosPermitidos = [0.5, 1, 1.5];
+    const intervalosPermitidos = [10, 15];
     const minutosDeEspera =
       intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
 
