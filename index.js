@@ -17,10 +17,18 @@ const SHOPEE_GRAPHQL_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
 const PRECO_MINIMO = 30.00; 
 
 const NICHOS = [
-  "moda masculina", "moda feminina", "roupa infantil", "sapato masculino", 
-  "sapato feminino", "calçado infantil", "casa", "moda fitness", 
-  "suplemento saúde", "eletrônicos", "joias", "relógio", "perfume", 
-  "malas", "viagem", "bolsas femininas", "maquiagem beleza", "drone camera", "celular"
+  "casa",
+  "cozinha",
+  "decoração",
+  "beleza",
+  "moda",
+  "infantil",
+  "eletrônicos",
+  "esporte",
+  "fitness",
+  "ferramentas",
+  "automotivo",
+  "pet"
 ];
 
 // Cache do ID do grupo para evitar requisições repetidas após encontrá-lo
@@ -52,11 +60,10 @@ async function buscarCupomOuCampanhaShopee() {
   productLink
   price
   imageUrl
-  commissionRate
   sales
   ratingStar
+  commissionRate
   priceDiscountRate
-  discount
 }
         }
       }
@@ -105,13 +112,17 @@ async function garimparMelhoresOfertas() {
     query: `
       query getProductOfferList($keyword: String) {
         productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: 1, limit: 10) {
-          nodes {
-            productName
-            productLink
-            price
-            imageUrl
-          }
-        }
+  nodes {
+    productName
+    productLink
+    price
+    imageUrl
+    sales
+    ratingStar
+    commissionRate
+    priceDiscountRate
+  }
+}
       }
     `,
     variables: { keyword: nichoDoMomento }
@@ -209,18 +220,7 @@ async function dispararImagemNoWhatsApp(textoMensagem, imagemUrl) {
 // Coordenação Geral do Robô
 async function executarRoboDeOfertas() {
   console.log('🤖 Iniciando varredura automatizada no GraphQL da Shopee...');
-  const campanhas = await buscarCupomOuCampanhaShopee();
-console.log('🎟️ CAMPANHAS ENCONTRADAS:', campanhas);
-
-if (campanhas.length > 0) {
-  const campanha = campanhas[0];
-
-  const textoCampanha = `🎟️ *CUPOM / CAMPANHA SHOPEE* 🎟️\n\n` +
-                        `🔥 *${campanha.offerName}*\n\n` +
-                        `👉 Acesse aqui:\n${campanha.offerLink}`;
-
-  await dispararImagemNoWhatsApp(textoCampanha, campanha.imageUrl);
-}
+  
   const produtos = await garimparMelhoresOfertas();
   if (!produtos || produtos.length === 0) {
     console.log('⚠️ Nenhuma oferta válida extraída nesta rodada.');
@@ -229,19 +229,43 @@ if (campanhas.length > 0) {
 
   const produtosJaEnviados = carregarEnviados();
 
-const produtosValidos = produtos.filter(
-  p =>
-    parseFloat(p.price) >= PRECO_MINIMO &&
+const produtosValidos = produtos.filter(p => {
+  const preco = parseFloat(p.price);
+  const vendas = Number(p.sales || 0);
+  const nota = parseFloat(p.ratingStar || 0);
+  const desconto = Number(p.priceDiscountRate || 0);
+  const comissao = parseFloat(p.commissionRate || 0);
+
+  return (
+    preco >= PRECO_MINIMO &&
+    vendas >= 1000 &&
+    nota >= 4.7 &&
+    desconto >= 20 &&
+    comissao >= 0.06 &&
     !produtosJaEnviados.includes(p.productLink)
-);
+  );
+});
 
 if (produtosValidos.length === 0) {
   console.log('Nenhum produto válido encontrado.');
   return;
 }
 
-const produtoValido =
-  produtosValidos[Math.floor(Math.random() * produtosValidos.length)];
+const produtoValido = produtosValidos.sort((a, b) => {
+
+  const scoreA =
+    (a.sales || 0) *
+    (a.priceDiscountRate || 0) *
+    (a.commissionRate || 0);
+
+  const scoreB =
+    (b.sales || 0) *
+    (b.priceDiscountRate || 0) *
+    (b.commissionRate || 0);
+
+  return scoreB - scoreA;
+
+})[0];
 
   if (!produtoValido) {
     console.log(`💸 Produtos abaixo do ticket mínimo de R$ ${PRECO_MINIMO}. Pulando ciclo...`);
@@ -256,12 +280,13 @@ const nomeResumido = produtoValido.productName.length > 80
   ? produtoValido.productName.slice(0, 80) + '...'
   : produtoValido.productName;
 
-const textoMensagem = `🔥 *ACHADINHO NA SHOPEE!* 🔥\n\n` +
-                      `🛍️ *${nomeResumido}*\n` +
-
-                      `💰 Por: *R$ ${produtoValido.price}*\n\n` +
-                      `👉 Compre aqui:\n${linkAfiliadoPronto}\n\n` +
-                      `⚠️ *Estoque limitado, aproveite!*`;
+const textoMensagem = `🔥 *ACHADINHO COM DESCONTO!* 🔥\n\n` +
+                      `🛍️ *${nomeResumido}*\n\n` +
+                      `💰 Por: *R$ ${produtoValido.price}*\n` +
+                      `📉 Desconto: *${produtoValido.priceDiscountRate}% OFF*\n` +
+                      `⭐ Avaliação: *${produtoValido.ratingStar}*\n` +
+                      `🔥 Vendidos: *${produtoValido.sales}*\n\n` +
+                      `👉 Compre aqui:\n${linkAfiliadoPronto}`;
 
 await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
 
