@@ -256,19 +256,24 @@ const esperar = (tempoEmMinutos) => new Promise(resolve => setTimeout(resolve, t
 
 async function iniciarFluxoAutomatico() {
   while (true) {
-    const agora = new Date();
-    const horaAtual = agora.getHours();
+    const horaBrasil = Number(
+      new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour: 'numeric',
+        hour12: false
+      }).format(new Date())
+    );
 
-    if (horaAtual >= 7 && horaAtual < 24) {
-      console.log(`\n🕒 Horário comercial válido (${horaAtual}h). Rodando rotina...`);
+    if (horaBrasil >= 7 && horaBrasil < 24) {
+      console.log(`\n🕒 Horário comercial válido (${horaBrasil}h). Rodando rotina...`);
       await executarRoboDeOfertas();
     } else {
-      console.log(`\n💤 Fora do horário comercial (${horaAtual}h). Aguardando próximo ciclo...`);
+      console.log(`\n💤 Fora do horário comercial (${horaBrasil}h). Aguardando próximo ciclo...`);
     }
 
     const intervalosPermitidos = [0.5, 1, 1.5];
     const minutosDeEspera = intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
-    
+
     console.log(`🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`);
     await esperar(minutosDeEspera);
   }
