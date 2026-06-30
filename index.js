@@ -111,7 +111,7 @@ async function garimparMelhoresOfertas() {
   const queryGraphQL = {
     query: `
       query getProductOfferList($keyword: String) {
-        productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: 1, limit: 10) {
+        productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: 1, limit: 30) {
   nodes {
     productName
     productLink
@@ -235,15 +235,19 @@ const produtosValidos = produtos.filter(p => {
   const nota = parseFloat(p.ratingStar || 0);
   const desconto = Number(p.priceDiscountRate || 0);
   const comissao = parseFloat(p.commissionRate || 0);
+  const comissaoReais = preco * comissao;
 
-  return (
-   preco >= 20.00 &&
-  vendas >= 1000 &&
-  nota >= 4.6 &&
-  desconto >= 20 &&
-  comissao >= 0.06 &&
-  !produtosJaEnviados.includes(p.productLink)
+console.log(
+    `💰 Comissão: R$ ${comissaoReais.toFixed(2)} | ${p.productName}`
 );
+  
+    return (
+    comissaoReais >= 5 &&
+    vendas >= 500 &&
+    nota >= 4.3 &&
+    desconto >= 20 &&
+    !produtosJaEnviados.includes(p.productLink)
+  );
 });
 
 if (produtosValidos.length === 0) {
@@ -254,14 +258,16 @@ if (produtosValidos.length === 0) {
 const produtoValido = produtosValidos.sort((a, b) => {
 
   const scoreA =
-    (a.sales || 0) *
-    (a.priceDiscountRate || 0) *
-    (a.commissionRate || 0);
+  (a.price || 0) *
+  (a.sales || 0) *
+  (a.priceDiscountRate || 0) *
+  (a.commissionRate || 0);
 
-  const scoreB =
-    (b.sales || 0) *
-    (b.priceDiscountRate || 0) *
-    (b.commissionRate || 0);
+const scoreB =
+  (b.price || 0) *
+  (b.sales || 0) *
+  (b.priceDiscountRate || 0) *
+  (b.commissionRate || 0);
 
   return scoreB - scoreA;
 
