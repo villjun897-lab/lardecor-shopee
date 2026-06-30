@@ -323,29 +323,27 @@ console.log('✅ Produto registrado no enviados.json');
 // ==========================================
 const esperar = (tempoEmMinutos) => new Promise(resolve => setTimeout(resolve, tempoEmMinutos * 60 * 1000));
 
-async function iniciarFluxoAutomatico() {
-  while (true) {
-    const horaBrasil = Number(
-      new Intl.DateTimeFormat('pt-BR', {
-        timeZone: 'America/Sao_Paulo',
-        hour: 'numeric',
-        hour12: false
-      }).format(new Date())
-    );
+while (true) {
+  const horaBrasil = Number(
+    new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: 'numeric',
+      hour12: false
+    }).format(new Date())
+  );
 
-    if (horaBrasil >= 7 && horaBrasil < 24) {
-      console.log(`\n🕒 Horário comercial válido (${horaBrasil}h). Rodando rotina...`);
-      await executarRoboDeOfertas();
-    } else {
-      console.log(`\n💤 Fora do horário comercial (${horaBrasil}h). Aguardando próximo ciclo...`);
-    }
+  console.log(`\n🕒 Executando rotina (${horaBrasil}h)...`);
+  await executarRoboDeOfertas();
 
-    const intervalosPermitidos = [0.5, 1, 1.5];
-    const minutosDeEspera = intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
+  const intervalosPermitidos = [0.5, 1, 1.5];
+  const minutosDeEspera =
+    intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
 
-    console.log(`🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`);
-    await esperar(minutosDeEspera);
-  }
+  console.log(
+    `🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`
+  );
+
+  await esperar(minutosDeEspera);
 }
 
 iniciarFluxoAutomatico();
