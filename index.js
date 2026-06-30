@@ -275,8 +275,8 @@ console.log(
 
 if (
   preco >= PRECO_MINIMO &&
-  comissaoReais >= 8 &&
-  vendas >= 1000 &&
+  comissaoReais >= 5 &&
+  vendas >= 500 &&
   nota >= 4.3 &&
   desconto >= 15 &&
   !jaEnviado
