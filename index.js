@@ -29,18 +29,61 @@ const SHOPEE_GRAPHQL_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
 const PRECO_MINIMO = 30.00; 
 
 const NICHOS = [
-  "casa",
-  "cozinha",
-  "decoração",
-  "beleza",
-  "moda",
-  "infantil",
-  "eletrônicos",
-  "esporte",
-  "fitness",
-  "ferramentas",
-  "automotivo",
-  "pet"
+  "produto cabelo",
+  "tratamento cabelo",
+  "cuidados cabelo",
+  "beleza feminina",
+  "perfume importado",
+  "hidratante corporal",
+  "body splash",
+
+  "eletrodomésticos",
+  "eletroportáteis",
+  "celular smartphone",
+  "tablet notebook",
+  "fone sem fio bluetooth",
+
+  "moda feminina",
+  "moda masculina",
+  "moda infantil",
+  "moda íntima feminina",
+  "moda íntima masculina",
+  "cueca masculina",
+  "calcinha feminina",
+  "lingerie",
+  "sutiã",
+  "meias",
+
+  "calçados femininos",
+  "calçados masculinos",
+  "calçados infantis",
+
+  "bolsas femininas",
+  "mochilas malas viagem",
+
+  "mãe bebê",
+  "casa cozinha",
+  "mesa banho",
+
+  "kit cozinha",
+  "kit banheiro",
+  "kit organização",
+  "kit perfume",
+  "kit skincare",
+  "kit cabelo",
+  "kit maquiagem",
+  "kit bebê",
+  "kit mesa posta",
+  "kit cama",
+  "kit toalha",
+  "kit lingerie",
+  "kit cueca",
+  "kit meias",
+
+  "ferramentas furadeira parafusadeira",
+  "esporte lazer",
+  "saúde bem estar",
+  "joias relógios acessórios"
 ];
 
 // Cache do ID do grupo para evitar requisições repetidas após encontrá-lo
@@ -272,6 +315,35 @@ for (const p of produtos) {
   const comissao = parseFloat(p.commissionRate || 0);
   const comissaoReais = preco * comissao;
 
+const nomeProduto = p.productName.toLowerCase();
+
+const palavrasBloqueadas = [
+  "fio",
+  "conector",
+  "terminal",
+  "parafuso",
+  "porca",
+  "arruela",
+  "resistor",
+  "placa",
+  "sensor",
+  "adaptador",
+  "etiqueta",
+  "saquinho",
+  "embalagem"
+];
+
+if (palavrasBloqueadas.some(palavra => nomeProduto.includes(palavra))) {
+  console.log(`🚫 Bloqueado: ${p.productName}`);
+  continue;
+}
+
+const produtoDestaque =
+  nomeProduto.includes("kit") ||
+  nomeProduto.includes("combo") ||
+  nomeProduto.includes("leve") ||
+  nomeProduto.includes("brinde");
+
 console.log(
     `💰 Comissão: R$ ${comissaoReais.toFixed(2)} | ${p.productName}`
 );
@@ -280,7 +352,7 @@ console.log(
 
 if (
   preco >= PRECO_MINIMO &&
-  comissaoReais >= 5 &&
+  comissaoReais >= (produtoDestaque ? 4 : 5) &&
   vendas >= 500 &&
   nota >= 4.3 &&
   desconto >= 15 &&
