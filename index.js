@@ -180,7 +180,9 @@ function obterHeadersAutenticados(bodyStr) {
 async function garimparMelhoresOfertas() {
   const nichoDoMomento = NICHOS[Math.floor(Math.random() * NICHOS.length)];
   
-const paginaAleatoria = Math.floor(Math.random() * 5) + 1;
+const paginaAleatoria = Math.floor(Math.random() * 10) + 1;
+
+console.log(`🔍 Busca: ${nichoDoMomento} | Página: ${paginaAleatoria}`);
 
   const queryGraphQL = {
     query: `
