@@ -237,13 +237,13 @@ const produtosValidos = produtos.filter(p => {
   const comissao = parseFloat(p.commissionRate || 0);
 
   return (
-    preco >= PRECO_MINIMO &&
-    vendas >= 1000 &&
-    nota >= 4.7 &&
-    desconto >= 20 &&
-    comissao >= 0.06 &&
-    !produtosJaEnviados.includes(p.productLink)
-  );
+   preco >= PRECO_MINIMO &&
+  vendas >= 1000 &&
+  nota >= 4.6 &&
+  desconto >= 20 &&
+  comissao >= 0.06 &&
+  !produtosJaEnviados.includes(p.productLink)
+);
 });
 
 if (produtosValidos.length === 0) {
