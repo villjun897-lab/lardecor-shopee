@@ -1,3 +1,7 @@
+
+console.log("⏸️ ROBÔ PAUSADO");
+process.exit(0);
+
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import pg from 'pg';
