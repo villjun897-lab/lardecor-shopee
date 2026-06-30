@@ -1,0 +1,277 @@
+import fetch from 'node-fetch';
+import crypto from 'crypto';
+
+// ==========================================
+//   1. CONFIGURAÇÕES DO USUÁRIO & CREDENCIAIS
+// ==========================================
+const INSTANCIA = 'ofertas-lardecor';
+const EVOLUTION_BASE_URL = 'https://evolution-api-production-1961.up.railway.app';
+const EVOLUTION_APIKEY = '84E8B2657F31-4176-A102-1C384DE7A1D8';
+
+const SHOPEE_APP_ID = '18363541104';
+const SHOPEE_APP_SECRET = 'BAOH7TTUUWYUKL3OPJIKT6Z67IRL2G6E';
+const SHOPEE_GRAPHQL_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
+
+// --- FILTROS DE QUALIDADE DA START ---
+const PRECO_MINIMO = 30.00; 
+
+const NICHOS = [
+  "moda masculina", "moda feminina", "roupa infantil", "sapato masculino", 
+  "sapato feminino", "calçado infantil", "casa", "moda fitness", 
+  "suplemento saúde", "eletrônicos", "joias", "relógio", "perfume", 
+  "malas", "viagem", "bolsas femininas", "maquiagem beleza", "drone camera", "celular"
+];
+
+// Cache do ID do grupo para evitar requisições repetidas após encontrá-lo
+let whatsappGrupoIdCache = null;
+
+// ==========================================
+//   2. GERADOR DE AUTENTICAÇÃO SHOPEE
+// ==========================================
+
+async function buscarCupomOuCampanhaShopee() {
+  const queryGraphQL = {
+    query: `
+      query buscarCampanhas {
+        shopeeOfferV2(keyword: "cupom", sortType: 1, page: 1, limit: 5) {
+          nodes {
+  productName
+  productLink
+  price
+  imageUrl
+  commissionRate
+  sales
+  ratingStar
+  priceDiscountRate
+  discount
+}
+        }
+      }
+    `
+  };
+
+  const bodyStr = JSON.stringify(queryGraphQL);
+  const headers = obterHeadersAutenticados(bodyStr);
+
+  try {
+    const response = await fetch(SHOPEE_GRAPHQL_URL, {
+      method: 'POST',
+      headers,
+      body: bodyStr
+    });
+
+    const textoBruto = await response.text();
+    console.log('\n🎟️ [LOG BRUTO SHOPEE - CUPONS/CAMPANHAS]:', textoBruto);
+
+    const resultado = JSON.parse(textoBruto);
+    return resultado?.data?.shopeeOfferV2?.nodes || [];
+  } catch (error) {
+    console.error('❌ Erro ao buscar campanhas/cupons:', error);
+    return [];
+  }
+}
+
+function obterHeadersAutenticados(bodyStr) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const baseStr = SHOPEE_APP_ID + timestamp + bodyStr + SHOPEE_APP_SECRET;
+  const signature = crypto.createHash('sha256').update(baseStr).digest('hex');
+
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `SHA256 Credential=${SHOPEE_APP_ID}, Timestamp=${timestamp}, Signature=${signature}`
+  };
+}
+
+// ==========================================
+//   3. OPERAÇÕES GRAPHQL DA SHOPEE
+// ==========================================
+async function garimparMelhoresOfertas() {
+  const nichoDoMomento = NICHOS[Math.floor(Math.random() * NICHOS.length)];
+  
+  const queryGraphQL = {
+    query: `
+      query getProductOfferList($keyword: String) {
+        productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: 1, limit: 10) {
+          nodes {
+            productName
+            productLink
+            price
+            imageUrl
+          }
+        }
+      }
+    `,
+    variables: { keyword: nichoDoMomento }
+  };
+
+  const bodyStr = JSON.stringify(queryGraphQL);
+  const headers = obterHeadersAutenticados(bodyStr);
+
+  try {
+    const response = await fetch(SHOPEE_GRAPHQL_URL, {
+      method: 'POST',
+      headers: headers,
+      body: bodyStr
+    });
+
+    const textoBruto = await response.text();
+    // Reativado o log bruto da Shopee para validação visual contínua
+    console.log(`\n🔍 [LOG BRUTO SHOPEE - BUSCA]:`, textoBruto);
+
+    const resultado = JSON.parse(textoBruto);
+    return resultado?.data?.productOfferV2?.nodes || [];
+  } catch (error) {
+    console.error('❌ Erro crítico no GraphQL da Shopee:', error);
+    return [];
+  }
+}
+
+async function gerarLinkAfiliado(urlProduto) {
+  const mutationGraphQL = {
+    query: `
+      mutation generateShortLink($originUrl: String!) {
+        generateShortLink(input: {
+          originUrl: $originUrl,
+          subIds: ["lardecor"]
+        }) {
+          shortLink
+        }
+      }
+    `,
+    variables: { originUrl: urlProduto }
+  };
+
+  const bodyStr = JSON.stringify(mutationGraphQL);
+  const headers = obterHeadersAutenticados(bodyStr);
+
+  try {
+    const response = await fetch(SHOPEE_GRAPHQL_URL, {
+      method: 'POST',
+      headers: headers,
+      body: bodyStr
+    });
+
+    const textoBruto = await response.text();
+    console.log(`\n🔍 [LOG BRUTO SHOPEE - LINK]:`, textoBruto);
+
+    const resultado = JSON.parse(textoBruto);
+    return resultado?.data?.generateShortLink?.shortLink || urlProduto;
+  } catch (error) {
+    return urlProduto;
+  }
+}
+
+async function buscarIdDoGrupoPeloNome() {
+  return '120363427655183555@g.us';
+}
+
+async function dispararImagemNoWhatsApp(textoMensagem, imagemUrl) {
+  const grupoId = await buscarIdDoGrupoPeloNome();
+
+  const urlEnvio = `${EVOLUTION_BASE_URL}/message/sendMedia/${INSTANCIA}`;
+
+  const payload = {
+    number: grupoId,
+    mediatype: 'image',
+    mimetype: 'image/jpeg',
+    caption: textoMensagem,
+    media: imagemUrl
+  };
+
+  const response = await fetch(urlEnvio, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': EVOLUTION_APIKEY
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const textoEvolution = await response.text();
+
+  console.log(`\n📬 [STATUS EVOLUTION IMAGEM]:`, response.status);
+  console.log(`📬 [RESPOSTA EVOLUTION IMAGEM]:`, textoEvolution);
+}
+
+// Coordenação Geral do Robô
+async function executarRoboDeOfertas() {
+  console.log('🤖 Iniciando varredura automatizada no GraphQL da Shopee...');
+  const campanhas = await buscarCupomOuCampanhaShopee();
+console.log('🎟️ CAMPANHAS ENCONTRADAS:', campanhas);
+
+if (campanhas.length > 0) {
+  const campanha = campanhas[0];
+
+  const textoCampanha = `🎟️ *CUPOM / CAMPANHA SHOPEE* 🎟️\n\n` +
+                        `🔥 *${campanha.offerName}*\n\n` +
+                        `👉 Acesse aqui:\n${campanha.offerLink}`;
+
+  await dispararImagemNoWhatsApp(textoCampanha, campanha.imageUrl);
+}
+  const produtos = await garimparMelhoresOfertas();
+  if (!produtos || produtos.length === 0) {
+    console.log('⚠️ Nenhuma oferta válida extraída nesta rodada.');
+    return;
+  }
+
+  const produtosValidos = produtos.filter(
+  p => parseFloat(p.price) >= PRECO_MINIMO
+);
+
+if (produtosValidos.length === 0) {
+  console.log('Nenhum produto válido encontrado.');
+  return;
+}
+
+const produtoValido =
+  produtosValidos[Math.floor(Math.random() * produtosValidos.length)];
+
+  if (!produtoValido) {
+    console.log(`💸 Produtos abaixo do ticket mínimo de R$ ${PRECO_MINIMO}. Pulando ciclo...`);
+    return;
+  }
+
+  console.log(`🎯 Produto selecionado: ${produtoValido.productName} - R$ ${produtoValido.price}`);
+
+  const linkAfiliadoPronto = await gerarLinkAfiliado(produtoValido.productLink);
+
+const nomeResumido = produtoValido.productName.length > 80
+  ? produtoValido.productName.slice(0, 80) + '...'
+  : produtoValido.productName;
+
+const textoMensagem = `🔥 *ACHADINHO NA SHOPEE!* 🔥\n\n` +
+                      `🛍️ *${nomeResumido}*\n` +
+
+                      `💰 Por: *R$ ${produtoValido.price}*\n\n` +
+                      `👉 Compre aqui:\n${linkAfiliadoPronto}\n\n` +
+                      `⚠️ *Estoque limitado, aproveite!*`;
+
+await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
+}
+
+// ==========================================
+//   5. TEMPORIZADOR INTELIGENTE (HUMANIZADO)
+// ==========================================
+const esperar = (tempoEmMinutos) => new Promise(resolve => setTimeout(resolve, tempoEmMinutos * 60 * 1000));
+
+async function iniciarFluxoAutomatico() {
+  while (true) {
+    const agora = new Date();
+    const horaAtual = agora.getHours();
+
+    if (horaAtual >= 7 && horaAtual < 24) {
+      console.log(`\n🕒 Horário comercial válido (${horaAtual}h). Rodando rotina...`);
+      await executarRoboDeOfertas();
+    } else {
+      console.log(`\n💤 Fora do horário comercial (${horaAtual}h). Aguardando próximo ciclo...`);
+    }
+
+    const intervalosPermitidos = [0.5, 1, 1.5];
+    const minutosDeEspera = intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
+    
+    console.log(`🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`);
+    await esperar(minutosDeEspera);
+  }
+}
+
+iniciarFluxoAutomatico();
