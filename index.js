@@ -7,10 +7,23 @@ const { Pool } = pg;
 // ==========================================
 // CONFIGURAÇÕES E CREDENCIAIS ATUALIZADAS
 // ==========================================
-const INSTANCIA = process.env.EVOLUTION_INSTANCE_NAME || 'lardecor-shopee';
+
+// Lista de até 5 instâncias para redundância/fallback automático
+const INSTANCIAS = [
+  process.env.EVOLUTION_INSTANCE_NAME || 'lardecor-shopee-2',
+  process.env.EVOLUTION_INSTANCE_2 || 'lardecor-shopee-3',
+  process.env.EVOLUTION_INSTANCE_3 || 'lardecor-shopee-4',
+  process.env.EVOLUTION_INSTANCE_4 || 'lardecor-shopee-5',
+  process.env.EVOLUTION_INSTANCE_5 || 'lardecor-shopee'
+].filter(Boolean);
+
 const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_URL || 'https://evolution-api-production-1961.up.railway.app';
-const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || 'E5D0FCF58EC1-4226-963C-FAF90BF773F0';
-const WHATSAPP_GRUPO_ID = process.env.WHATSAPP_GROUP_ID || '120363410674643639@g.us';
+
+// Chave específica atualizada da instância lardecor-shopee-2
+const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || '200A6B55F0B6-4129-BE1A-2AD93DAF2E46';
+
+// ID Atualizado do Novo Grupo "Ofertas LarDecór"
+const WHATSAPP_GRUPO_ID = process.env.WHATSAPP_GROUP_ID || '120363426165901005@g.us';
 
 const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID || '18363541104';
 const SHOPEE_APP_SECRET = process.env.SHOPEE_APP_SECRET || 'BAOH7TTUUWYUKL3OPJIKT6Z67IRL2G6E';
@@ -172,16 +185,14 @@ async function gerarLinkAfiliado(urlOriginal) {
 }
 
 // ==========================================
-// INTEGRAÇÃO EVOLUTION API (WHATSAPP)
+// INTEGRAÇÃO EVOLUTION API (COM REDUNDÂNCIA)
 // ==========================================
 async function dispararImagemWhatsApp(legenda, imageUrl) {
-  // Garante que a URL base e a instância não fiquem com barras duplicadas
-  const baseUrlFormatada = EVOLUTION_BASE_URL.replace(/\/+$/, '');
-  const urlEnvio = `${baseUrlFormatada}/message/sendMedia/${INSTANCIA}`;
+  const baseUrl = EVOLUTION_BASE_URL.replace(/\/+$/, '');
 
-  // Validação rápida de URL da imagem
-  if (!imageUrl || !imageUrl.startsWith('http')) {
-    throw new Error(`URL de imagem inválida: "${imageUrl}"`);
+  let mediaUrl = imageUrl;
+  if (mediaUrl && mediaUrl.startsWith('//')) {
+    mediaUrl = `https:${mediaUrl}`;
   }
 
   const payload = {
@@ -189,26 +200,48 @@ async function dispararImagemWhatsApp(legenda, imageUrl) {
     mediatype: 'image',
     mimetype: 'image/jpeg',
     caption: legenda,
-    media: imageUrl
+    media: mediaUrl
   };
 
-  const response = await fetch(urlEnvio, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': EVOLUTION_APIKEY
-    },
-    body: JSON.stringify(payload)
-  });
+  let ultimoErro = null;
 
-  const textoResposta = await response.text();
-  if (!response.ok) {
-    throw new Error(`Status ${response.status}: ${textoResposta}`);
+  // Testa as instâncias na fila até uma conseguir realizar o disparo
+  for (const instancia of INSTANCIAS) {
+    const urlEnvio = `${baseUrl}/message/sendMedia/${instancia}`;
+    console.log(`📡 Tentando disparar pela instância: [${instancia}]...`);
+
+    try {
+      new URL(urlEnvio);
+      new URL(mediaUrl);
+
+      const response = await fetch(urlEnvio, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': EVOLUTION_APIKEY
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const textoResposta = await response.text();
+
+      if (response.ok) {
+        let json;
+        try { json = JSON.parse(textoResposta); } catch (e) { json = {}; }
+        console.log(`✅ Sucesso no disparo via [${instancia}]!`);
+        return json?.key?.id || json?.messageId || 'id_desconhecido';
+      }
+
+      console.warn(`⚠️ Instância [${instancia}] falhou (${response.status}). Tentando a próxima...`);
+      ultimoErro = new Error(`Erro [${instancia}]: ${textoResposta}`);
+    } catch (err) {
+      console.warn(`⚠️ Erro na instância [${instancia}]: ${err.message}`);
+      ultimoErro = err;
+    }
   }
 
-  let json;
-  try { json = JSON.parse(textoResposta); } catch (e) { throw new Error('Resposta inválida da Evolution'); }
-  return json?.key?.id || json?.messageId || 'id_desconhecido';
+  // Lança erro caso todas as instâncias falhem
+  throw new Error(`Todas as instâncias configuradas falharam. Último erro: ${ultimoErro?.message}`);
 }
 
 function normalizarComissao(rateRaw, preco) {
@@ -297,6 +330,12 @@ async function iniciar() {
       await executarCiclo();
     } catch (err) {
       console.error('❌ Erro na rotina:', err.message);
+
+      // Tratamento para dar uma pausa se todas as conexões falharem
+      if (err.message.includes('Connection Closed') || err.message.includes('Status 500')) {
+        console.log('⚠️ Erro de conexão nas instâncias. Aguardando 2 minutos para tentar novamente...');
+        await new Promise(resolve => setTimeout(resolve, 2 * 60 * 1000));
+      }
     }
     await new Promise(resolve => setTimeout(resolve, INTERVALO_MINUTOS * 60 * 1000));
   }
