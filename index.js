@@ -4,11 +4,13 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-// Configurações e credenciais (Lê do ambiente se existir, senão usa o padrão)
-const INSTANCIA = process.env.EVOLUTION_INSTANCE_NAME || 'ofertas-lardecor';
+// ==========================================
+// CONFIGURAÇÕES E CREDENCIAIS ATUALIZADAS
+// ==========================================
+const INSTANCIA = process.env.EVOLUTION_INSTANCE_NAME || 'lardecor-shopee';
 const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_URL || 'https://evolution-api-production-1961.up.railway.app';
-const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || '84E8B2657F31-4176-A102-1C384DE7A1D8';
-const WHATSAPP_GRUPO_ID = process.env.WHATSAPP_GROUP_ID || '120363427655183555@g.us';
+const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || 'E5D0FCF58EC1-4226-963C-FAF90BF773F0';
+const WHATSAPP_GRUPO_ID = process.env.WHATSAPP_GROUP_ID || '120363410674643639@g.us';
 
 const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID || '18363541104';
 const SHOPEE_APP_SECRET = process.env.SHOPEE_APP_SECRET || 'BAOH7TTUUWYUKL3OPJIKT6Z67IRL2G6E';
@@ -23,6 +25,7 @@ const AVALIACAO_MINIMA = 4.3;
 const DESCONTO_MINIMO = 15;
 const INTERVALO_MINUTOS = 12;
 
+// Conexão com o Banco de Dados Postgres
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -42,6 +45,9 @@ const NICHOS = [
   "camiseta masculina"
 ];
 
+// ==========================================
+// FUNÇÕES DO BANCO DE DADOS
+// ==========================================
 async function prepararBanco() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS historico_ofertas (
@@ -86,6 +92,9 @@ async function registrarEnvio(produto, operationId, messageId) {
   );
 }
 
+// ==========================================
+// INTEGRAÇÃO SHOPEE
+// ==========================================
 function obterHeadersShopee(bodyStr) {
   const timestamp = Math.floor(Date.now() / 1000);
   const baseStr = SHOPEE_APP_ID + timestamp + bodyStr + SHOPEE_APP_SECRET;
@@ -162,8 +171,18 @@ async function gerarLinkAfiliado(urlOriginal) {
   }
 }
 
+// ==========================================
+// INTEGRAÇÃO EVOLUTION API (WHATSAPP)
+// ==========================================
 async function dispararImagemWhatsApp(legenda, imageUrl) {
-  const urlEnvio = `${EVOLUTION_BASE_URL}/message/sendMedia/${INSTANCIA}`;
+  // Garante que a URL base e a instância não fiquem com barras duplicadas
+  const baseUrlFormatada = EVOLUTION_BASE_URL.replace(/\/+$/, '');
+  const urlEnvio = `${baseUrlFormatada}/message/sendMedia/${INSTANCIA}`;
+
+  // Validação rápida de URL da imagem
+  if (!imageUrl || !imageUrl.startsWith('http')) {
+    throw new Error(`URL de imagem inválida: "${imageUrl}"`);
+  }
 
   const payload = {
     number: WHATSAPP_GRUPO_ID,
@@ -199,6 +218,9 @@ function normalizarComissao(rateRaw, preco) {
   return { percentual, comissaoReais };
 }
 
+// ==========================================
+// CICLO DE EXECUÇÃO DO ROBÔ
+// ==========================================
 async function executarCiclo() {
   const buscaSorteada = NICHOS[Math.floor(Math.random() * NICHOS.length)];
   console.log(`\n🔍 Garimpando: "${buscaSorteada}"...`);
