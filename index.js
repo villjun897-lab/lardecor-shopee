@@ -1,183 +1,90 @@
-
-console.log("⏸️ ROBÔ PAUSADO");
-process.exit(0);
-
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import pg from 'pg';
 
 const { Pool } = pg;
 
+// Configurações e credenciais (Lê do ambiente se existir, senão usa o padrão)
+const INSTANCIA = process.env.EVOLUTION_INSTANCE_NAME || 'ofertas-lardecor';
+const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_URL || 'https://evolution-api-production-1961.up.railway.app';
+const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || '84E8B2657F31-4176-A102-1C384DE7A1D8';
+const WHATSAPP_GRUPO_ID = process.env.WHATSAPP_GROUP_ID || '120363427655183555@g.us';
+
+const SHOPEE_APP_ID = process.env.SHOPEE_APP_ID || '18363541104';
+const SHOPEE_APP_SECRET = process.env.SHOPEE_APP_SECRET || 'BAOH7TTUUWYUKL3OPJIKT6Z67IRL2G6E';
+const SHOPEE_GRAPHQL_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
+const SHOPEE_SUB_ID = process.env.SHOPEE_SUB_ID || 'lardecor';
+
+// Regras e Filtros Comerciais
+const PRECO_MINIMO = 30.00;
+const COMISSAO_MINIMA_REAIS = 5.00;
+const VENDAS_MINIMAS = 50;
+const AVALIACAO_MINIMA = 4.3;
+const DESCONTO_MINIMO = 15;
+const INTERVALO_MINUTOS = 12;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false
 });
 
-//if (!process.env.DATABASE_URL) {
-  //console.error("❌ DATABASE_URL não encontrada");
-  //process.exit(1);
-//}
-
-// ==========================================
-//   1. CONFIGURAÇÕES DO USUÁRIO & CREDENCIAIS
-// ==========================================
-const INSTANCIA = 'ofertas-lardecor';
-const EVOLUTION_BASE_URL = 'https://evolution-api-production-1961.up.railway.app';
-const EVOLUTION_APIKEY = '84E8B2657F31-4176-A102-1C384DE7A1D8';
-
-const SHOPEE_APP_ID = '18363541104';
-const SHOPEE_APP_SECRET = 'BAOH7TTUUWYUKL3OPJIKT6Z67IRL2G6E';
-const SHOPEE_GRAPHQL_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
-
-// --- FILTROS DE QUALIDADE DA START ---
-const PRECO_MINIMO = 30.00; 
-
 const NICHOS = [
-  "produto cabelo",
-  "tratamento cabelo",
-  "cuidados cabelo",
-  "beleza feminina",
-  "perfume importado",
-  "hidratante corporal",
-  "body splash",
-
-  "eletrodomésticos",
-  "eletroportáteis",
   "celular smartphone",
-  "tablet notebook",
   "fone sem fio bluetooth",
-
-  "moda",
-  "cueca",
-  "meia",
-  "vestido feminino",
-"blusa feminina",
-"calça feminina",
-"conjunto feminino",
-"jaqueta feminina",
-
-"camiseta masculina",
-"calça masculina",
-"bermuda masculina",
-"jaqueta masculina",
-"moletom masculino",
-
-"conjunto infantil",
-"roupa infantil",
-"vestido infantil",
-"moletom infantil",
-"jaqueta infantil",
-
-  "calçados femininos",
-  "calçados masculinos",
-  "calçados infantis",
-
-  "bolsas femininas",
-  "mochilas malas viagem",
-
-  "mãe bebê",
+  "eletrodomésticos",
+  "ferramentas furadeira",
+  "produto cabelo",
+  "perfume importado",
   "casa cozinha",
-  "mesa banho",
-
-  "kit cozinha",
-  "kit banheiro",
-  "kit organização",
-  "kit perfume",
-  "kit skincare",
-  "kit cabelo",
-  "kit maquiagem",
-  "kit bebê",
-  "kit mesa posta",
-  "kit cama",
-  "kit toalha",
-  "kit lingerie",
-  "kit cueca",
-  "kit meias",
-
-  "ferramentas furadeira parafusadeira",
-  "esporte lazer",
-  "saúde bem estar",
-  "joias relógios acessórios"
+  "conjunto feminino",
+  "camiseta masculina"
 ];
-
-// Cache do ID do grupo para evitar requisições repetidas após encontrá-lo
-let whatsappGrupoIdCache = null;
-
-// ==========================================
-//   2. GERADOR DE AUTENTICAÇÃO SHOPEE
-// ==========================================
 
 async function prepararBanco() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS produtos_enviados (
+    CREATE TABLE IF NOT EXISTS historico_ofertas (
       id SERIAL PRIMARY KEY,
-      product_link TEXT UNIQUE NOT NULL,
-      product_name TEXT,
-      enviado_em TIMESTAMP DEFAULT NOW()
+      marketplace VARCHAR(30) DEFAULT 'shopee',
+      item_id VARCHAR(64) NOT NULL,
+      product_link_original TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      whatsapp_group_id VARCHAR(100) NOT NULL,
+      enviado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      operation_id VARCHAR(100) UNIQUE NOT NULL,
+      evolution_message_id VARCHAR(100)
     );
+    CREATE INDEX IF NOT EXISTS idx_historico_item_group ON historico_ofertas(marketplace, item_id, whatsapp_group_id);
   `);
 }
 
-async function produtoJaFoiEnviado(productLink) {
-  const resultado = await pool.query(
-    'SELECT 1 FROM produtos_enviados WHERE product_link = $1 LIMIT 1',
-    [productLink]
+async function produtoJaFoiEnviado(itemId) {
+  const res = await pool.query(
+    `SELECT 1 FROM historico_ofertas 
+     WHERE item_id = $1 AND whatsapp_group_id = $2 
+     AND enviado_em > NOW() - INTERVAL '7 days' LIMIT 1`,
+    [String(itemId), WHATSAPP_GRUPO_ID]
   );
-
-  return resultado.rowCount > 0;
+  return res.rowCount > 0;
 }
 
-async function registrarProdutoEnviado(produto) {
+async function registrarEnvio(produto, operationId, messageId) {
   await pool.query(
-    `INSERT INTO produtos_enviados (product_link, product_name)
-     VALUES ($1, $2)
-     ON CONFLICT (product_link) DO NOTHING`,
-    [produto.productLink, produto.productName]
+    `INSERT INTO historico_ofertas 
+     (marketplace, item_id, product_link_original, product_name, whatsapp_group_id, operation_id, evolution_message_id)
+     VALUES ('shopee', $1, $2, $3, $4, $5, $6)
+     ON CONFLICT (operation_id) DO NOTHING`,
+    [
+      String(produto.itemId),
+      produto.productLink,
+      produto.productName,
+      WHATSAPP_GRUPO_ID,
+      operationId,
+      messageId
+    ]
   );
 }
 
-async function buscarCupomOuCampanhaShopee() {
-  const queryGraphQL = {
-    query: `
-      query buscarCampanhas {
-        shopeeOfferV2(keyword: "cupom", sortType: 1, page: 1, limit: 5) {
-          nodes {
-  productName
-  productLink
-  price
-  imageUrl
-  sales
-  ratingStar
-  commissionRate
-  priceDiscountRate
-}
-        }
-      }
-    `
-  };
-
-  const bodyStr = JSON.stringify(queryGraphQL);
-  const headers = obterHeadersAutenticados(bodyStr);
-
-  try {
-    const response = await fetch(SHOPEE_GRAPHQL_URL, {
-      method: 'POST',
-      headers,
-      body: bodyStr
-    });
-
-    const textoBruto = await response.text();
-    console.log('\n🎟️ [LOG BRUTO SHOPEE - CUPONS/CAMPANHAS]:', textoBruto);
-
-    const resultado = JSON.parse(textoBruto);
-    return resultado?.data?.shopeeOfferV2?.nodes || [];
-  } catch (error) {
-    console.error('❌ Erro ao buscar campanhas/cupons:', error);
-    return [];
-  }
-}
-
-function obterHeadersAutenticados(bodyStr) {
+function obterHeadersShopee(bodyStr) {
   const timestamp = Math.floor(Date.now() / 1000);
   const baseStr = SHOPEE_APP_ID + timestamp + bodyStr + SHOPEE_APP_SECRET;
   const signature = crypto.createHash('sha256').update(baseStr).digest('hex');
@@ -188,111 +95,80 @@ function obterHeadersAutenticados(bodyStr) {
   };
 }
 
-// ==========================================
-//   3. OPERAÇÕES GRAPHQL DA SHOPEE
-// ==========================================
-async function garimparMelhoresOfertas() {
-  const nichoDoMomento = NICHOS[Math.floor(Math.random() * NICHOS.length)];
-  
-const paginaAleatoria = Math.floor(Math.random() * 10) + 1;
-
-console.log(`🔍 Busca: ${nichoDoMomento} | Página: ${paginaAleatoria}`);
-
+async function buscarOfertasShopee(keyword) {
+  const page = Math.floor(Math.random() * 5) + 1;
   const queryGraphQL = {
     query: `
       query getProductOfferList($keyword: String, $page: Int) {
         productOfferV2(keyword: $keyword, listType: 0, sortType: 2, page: $page, limit: 30) {
-  nodes {
-    productName
-    productLink
-    price
-    imageUrl
-    sales
-    ratingStar
-    commissionRate
-    priceDiscountRate
-  }
-}
+          nodes {
+            itemId
+            productName
+            productLink
+            productCatIds
+            price
+            imageUrl
+            sales
+            ratingStar
+            commissionRate
+            priceDiscountRate
+          }
+        }
       }
     `,
-    variables: {
-  keyword: nichoDoMomento,
-  page: paginaAleatoria
-}
+    variables: { keyword, page }
   };
 
   const bodyStr = JSON.stringify(queryGraphQL);
-  const headers = obterHeadersAutenticados(bodyStr);
-
   try {
     const response = await fetch(SHOPEE_GRAPHQL_URL, {
       method: 'POST',
-      headers: headers,
+      headers: obterHeadersShopee(bodyStr),
       body: bodyStr
     });
-
-    const textoBruto = await response.text();
-    // Reativado o log bruto da Shopee para validação visual contínua
-    console.log(`\n🔍 [LOG BRUTO SHOPEE - BUSCA]:`, textoBruto);
-
-    const resultado = JSON.parse(textoBruto);
-    return resultado?.data?.productOfferV2?.nodes || [];
-  } catch (error) {
-    console.error('❌ Erro crítico no GraphQL da Shopee:', error);
+    const json = await response.json();
+    return json?.data?.productOfferV2?.nodes || [];
+  } catch (err) {
+    console.error('❌ Erro na busca:', err.message);
     return [];
   }
 }
 
-async function gerarLinkAfiliado(urlProduto) {
+async function gerarLinkAfiliado(urlOriginal) {
   const mutationGraphQL = {
     query: `
-      mutation generateShortLink($originUrl: String!) {
-        generateShortLink(input: {
-          originUrl: $originUrl,
-          subIds: ["lardecor"]
-        }) {
+      mutation generateShortLink($originUrl: String!, $subId: String) {
+        generateShortLink(input: { originUrl: $originUrl, subIds: [$subId] }) {
           shortLink
         }
       }
     `,
-    variables: { originUrl: urlProduto }
+    variables: { originUrl: urlOriginal, subId: SHOPEE_SUB_ID }
   };
 
   const bodyStr = JSON.stringify(mutationGraphQL);
-  const headers = obterHeadersAutenticados(bodyStr);
-
   try {
     const response = await fetch(SHOPEE_GRAPHQL_URL, {
       method: 'POST',
-      headers: headers,
+      headers: obterHeadersShopee(bodyStr),
       body: bodyStr
     });
-
-    const textoBruto = await response.text();
-    console.log(`\n🔍 [LOG BRUTO SHOPEE - LINK]:`, textoBruto);
-
-    const resultado = JSON.parse(textoBruto);
-    return resultado?.data?.generateShortLink?.shortLink || urlProduto;
-  } catch (error) {
-    return urlProduto;
+    const json = await response.json();
+    return json?.data?.generateShortLink?.shortLink || urlOriginal;
+  } catch (err) {
+    return urlOriginal;
   }
 }
 
-async function buscarIdDoGrupoPeloNome() {
-  return '120363427655183555@g.us';
-}
-
-async function dispararImagemNoWhatsApp(textoMensagem, imagemUrl) {
-  const grupoId = await buscarIdDoGrupoPeloNome();
-
+async function dispararImagemWhatsApp(legenda, imageUrl) {
   const urlEnvio = `${EVOLUTION_BASE_URL}/message/sendMedia/${INSTANCIA}`;
 
   const payload = {
-    number: grupoId,
+    number: WHATSAPP_GRUPO_ID,
     mediatype: 'image',
     mimetype: 'image/jpeg',
-    caption: textoMensagem,
-    media: imagemUrl
+    caption: legenda,
+    media: imageUrl
   };
 
   const response = await fetch(urlEnvio, {
@@ -304,173 +180,102 @@ async function dispararImagemNoWhatsApp(textoMensagem, imagemUrl) {
     body: JSON.stringify(payload)
   });
 
-  const textoEvolution = await response.text();
-
-  console.log(`\n📬 [STATUS EVOLUTION IMAGEM]:`, response.status);
-  console.log(`📬 [RESPOSTA EVOLUTION IMAGEM]:`, textoEvolution);
-}
-
-// Coordenação Geral do Robô
-async function executarRoboDeOfertas() {
-  console.log('🤖 Iniciando varredura automatizada no GraphQL da Shopee...');
-  
-  const produtos = await garimparMelhoresOfertas();
-  if (!produtos || produtos.length === 0) {
-    console.log('⚠️ Nenhuma oferta válida extraída nesta rodada.');
-    return;
+  const textoResposta = await response.text();
+  if (!response.ok) {
+    throw new Error(`Status ${response.status}: ${textoResposta}`);
   }
 
-
-const produtosValidos = [];
-
-for (const p of produtos) {
-  const preco = parseFloat(p.price);
-  const vendas = Number(p.sales || 0);
-  const nota = parseFloat(p.ratingStar || 0);
-  const desconto = Number(p.priceDiscountRate || 0);
-  const comissao = parseFloat(p.commissionRate || 0);
-  const comissaoReais = preco * comissao;
-
-const nomeProduto = p.productName.toLowerCase();
-
-const palavrasBloqueadas = [
-  "fio",
-  "conector",
-  "terminal",
-  "parafuso",
-  "porca",
-  "arruela",
-  "resistor",
-  "placa",
-  "sensor",
-  "adaptador",
-  "etiqueta",
-  "saquinho",
-  "embalagem"
-];
-
-if (palavrasBloqueadas.some(palavra => nomeProduto.includes(palavra))) {
-  console.log(`🚫 Bloqueado: ${p.productName}`);
-  continue;
+  let json;
+  try { json = JSON.parse(textoResposta); } catch (e) { throw new Error('Resposta inválida da Evolution'); }
+  return json?.key?.id || json?.messageId || 'id_desconhecido';
 }
 
-const produtoDestaque =
-  nomeProduto.includes("kit") ||
-  nomeProduto.includes("combo") ||
-  nomeProduto.includes("leve") ||
-  nomeProduto.includes("brinde");
-
-console.log(
-    `💰 Comissão: R$ ${comissaoReais.toFixed(2)} | ${p.productName}`
-);
-  
-    const jaEnviado = await produtoJaFoiEnviado(p.productLink);
-
-if (
-  preco >= PRECO_MINIMO &&
-  comissaoReais >= (produtoDestaque ? 4 : 5) &&
-  vendas >= 500 &&
-  nota >= 4.3 &&
-  desconto >= 15 &&
-  !jaEnviado
-) {
-  produtosValidos.push(p);
-}
+function normalizarComissao(rateRaw, preco) {
+  const rate = parseFloat(rateRaw || 0);
+  const percentual = rate < 1 ? rate * 100 : rate;
+  const comissaoReais = preco * (percentual / 100);
+  return { percentual, comissaoReais };
 }
 
-if (produtosValidos.length === 0) {
-  console.log('Nenhum produto válido encontrado.');
-  return;
-}
+async function executarCiclo() {
+  const buscaSorteada = NICHOS[Math.floor(Math.random() * NICHOS.length)];
+  console.log(`\n🔍 Garimpando: "${buscaSorteada}"...`);
 
-const produtoValido = produtosValidos.sort((a, b) => {
+  const produtos = await buscarOfertasShopee(buscaSorteada);
+  if (!produtos || produtos.length === 0) return;
 
-  const scoreA =
-  (a.price || 0) *
-  (a.price || 0) *
-  (a.sales || 0) *
-  (a.commissionRate || 0);
+  const qualificados = [];
 
-const scoreB =
-  (b.price || 0) *
-  (b.price || 0) *
-  (b.sales || 0) *
-  (b.commissionRate || 0);
+  for (const p of produtos) {
+    const preco = parseFloat(p.price || 0);
+    const vendas = parseInt(p.sales || 0, 10);
+    const avaliacao = parseFloat(p.ratingStar || 0);
+    const desconto = parseFloat(p.priceDiscountRate || 0);
+    const { comissaoReais } = normalizarComissao(p.commissionRate, preco);
 
-  return scoreB - scoreA;
-
-})[0];
-
-  if (!produtoValido) {
-    console.log(`💸 Produtos abaixo do ticket mínimo de R$ ${PRECO_MINIMO}. Pulando ciclo...`);
-    return;
+    if (
+      preco >= PRECO_MINIMO &&
+      comissaoReais >= COMISSAO_MINIMA_REAIS &&
+      vendas >= VENDAS_MINIMAS &&
+      avaliacao >= AVALIACAO_MINIMA &&
+      desconto >= DESCONTO_MINIMO
+    ) {
+      const jaEnviado = await produtoJaFoiEnviado(p.itemId);
+      if (!jaEnviado) {
+        const score = (comissaoReais * 10) + (desconto * 2) + (vendas * 0.05);
+        qualificados.push({ produto: p, score, comissaoReais });
+      }
+    }
   }
 
-  console.log(`🎯 Produto selecionado: ${produtoValido.productName} - R$ ${produtoValido.price}`);
+  if (qualificados.length === 0) return;
 
-  const linkAfiliadoPronto = await gerarLinkAfiliado(produtoValido.productLink);
+  qualificados.sort((a, b) => b.score - a.score);
+  const selecionado = qualificados[0].produto;
 
-const nomeResumido = produtoValido.productName.length > 80
-  ? produtoValido.productName.slice(0, 80) + '...'
-  : produtoValido.productName;
+  console.log(`🎯 Selecionado: ${selecionado.productName}`);
 
-  const precoAtual = parseFloat(produtoValido.price);
-const desconto = parseFloat(produtoValido.priceDiscountRate || 0);
+  const shortLink = await gerarLinkAfiliado(selecionado.productLink);
+  const precoAtual = parseFloat(selecionado.price);
+  const descontoPercent = parseFloat(selecionado.priceDiscountRate || 0);
+  const precoOriginal = descontoPercent > 0 ? precoAtual / (1 - descontoPercent / 100) : precoAtual;
 
-const precoOriginal = desconto > 0
-  ? precoAtual / (1 - desconto / 100)
-  : precoAtual;
+  const nomeExibicao = selecionado.productName.length > 75 
+    ? selecionado.productName.slice(0, 75) + '...' 
+    : selecionado.productName;
 
-const precoOriginalFormatado = precoOriginal.toFixed(2).replace('.', ',');
-const precoAtualFormatado = precoAtual.toFixed(2).replace('.', ',');
-
-const textoMensagem =
+  const textoMensagem = 
 `🔥 *SUPER OFERTA SHOPEE* 🔥
 
-🛍️ *${nomeResumido}*
+🛍️ *${nomeExibicao}*
 
-💸 De: ~R$ ${precoOriginalFormatado}~
-💰 Por: *R$ ${precoAtualFormatado}*
+💸 De: ~R$ ${precoOriginal.toFixed(2).replace('.', ',')}~
+💰 Por: *R$ ${precoAtual.toFixed(2).replace('.', ',')}*
 
-📉 Desconto: *${produtoValido.priceDiscountRate}% OFF*
-
+📉 Desconto: *${descontoPercent}% OFF*
 
 👉 Compre aqui:
-${linkAfiliadoPronto}`;
+${shortLink}`;
 
-await dispararImagemNoWhatsApp(textoMensagem, produtoValido.imageUrl);
+  const operationId = `op_${selecionado.itemId}_${Date.now()}`;
+  const messageId = await dispararImagemWhatsApp(textoMensagem, selecionado.imageUrl);
 
-await registrarProdutoEnviado(produtoValido);
-
-console.log('✅ Produto registrado no PostgreSQL');
+  await registrarEnvio(selecionado, operationId, messageId);
+  console.log('✅ Oferta disparada no grupo com sucesso!');
 }
 
-// ==========================================
-//   5. TEMPORIZADOR INTELIGENTE (HUMANIZADO)
-// ==========================================
-const esperar = (tempoEmMinutos) => new Promise(resolve => setTimeout(resolve, tempoEmMinutos * 60 * 1000));
+async function iniciar() {
+  await prepararBanco();
+  console.log('🚀 Robô de Ofertas Ativo!');
 
-async function iniciarFluxoAutomatico() {
   while (true) {
-    const horaBrasil = Number(
-      new Intl.DateTimeFormat('pt-BR', {
-        timeZone: 'America/Sao_Paulo',
-        hour: 'numeric',
-        hour12: false
-      }).format(new Date())
-    );
-
-    console.log(`\n🕒 Executando rotina (${horaBrasil}h)...`);
-    await executarRoboDeOfertas();
-
-    const intervalosPermitidos = [10, 15];
-    const minutosDeEspera =
-      intervalosPermitidos[Math.floor(Math.random() * intervalosPermitidos.length)];
-
-    console.log(`🤖 Delay Dinâmico: Aguardando exatamente ${minutosDeEspera} minutos para a próxima ação...`);
-    await esperar(minutosDeEspera);
+    try {
+      await executarCiclo();
+    } catch (err) {
+      console.error('❌ Erro na rotina:', err.message);
+    }
+    await new Promise(resolve => setTimeout(resolve, INTERVALO_MINUTOS * 60 * 1000));
   }
 }
 
-await prepararBanco();
-iniciarFluxoAutomatico();
+iniciar();
