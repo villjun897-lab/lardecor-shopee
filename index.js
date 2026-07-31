@@ -9,15 +9,22 @@ const { Pool } = pg;
 // ==========================================
 
 const INSTANCIAS = [
-  process.env.EVOLUTION_INSTANCE_NAME || 'lardecor-shopee-2',
-  process.env.EVOLUTION_INSTANCE_2    || 'lardecor-shopee-3',
-  process.env.EVOLUTION_INSTANCE_3    || 'lardecor-shopee-4',
-  process.env.EVOLUTION_INSTANCE_4    || 'lardecor-shopee-5',
-  process.env.EVOLUTION_INSTANCE_5    || 'lardecor-shopee'
+  process.env.EVOLUTION_INSTANCE_NAME || 'lardecor-shopee',
+  process.env.EVOLUTION_INSTANCE_2    || 'lardecor-shopee-2',
+  process.env.EVOLUTION_INSTANCE_3    || 'lardecor-shopee-3',
+  process.env.EVOLUTION_INSTANCE_4    || 'lardecor-shopee-4',
+  process.env.EVOLUTION_INSTANCE_5    || 'lardecor-shopee-5'
 ].filter(Boolean);
 
-const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_URL || 'https://evolution-api-production-1961.up.railway.app';
-const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY || 'startshopee2026';
+const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_URL;
+
+const EVOLUTION_APIKEY = process.env.EVOLUTION_API_KEY;
+
+if (!process.env.EVOLUTION_API_URL)
+  throw new Error("EVOLUTION_API_URL não configurada");
+
+if (!process.env.EVOLUTION_API_KEY)
+  throw new Error("EVOLUTION_API_KEY não configurada");
 
 const DESTINOS_WHATSAPP = [
   { nome: 'Grupo LarDecór', id: process.env.WHATSAPP_GROUP_ID || '120363426165901005@g.us' }
